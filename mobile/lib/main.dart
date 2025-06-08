@@ -1,6 +1,17 @@
+// -----------------------------------------------------------------------------
+// Immich Mobile App
+// Copyright © 2025 Immich Contributors
+// Licensed under MIT (https://github.com/immich-app/immich/blob/master/LICENSE)
+// -----------------------------------------------------------------------------
+
 import 'dart:async';
 import 'dart:io';
+import 'dart:async';
+import 'dart:convert';   // ← this gives you utf8
+import 'dart:io';
 
+import 'package:immich_mobile/providers/api.provider.dart';
+import 'package:immich_mobile/services/api.service.dart';
 import 'package:background_downloader/background_downloader.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:easy_localization/easy_localization.dart';
@@ -34,7 +45,36 @@ import 'package:logging/logging.dart';
 import 'package:timezone/data/latest.dart';
 import 'package:worker_manager/worker_manager.dart';
 
+
+/// Listens for “IMMICH_IP:<ip>” on UDP port 42424 for up to 5s.
+Future<String?> discoverImmichServer() async {
+  final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 42424);
+  socket.broadcastEnabled = true;
+  try {
+    final event = await socket
+        .where((e) => e == RawSocketEvent.read)
+        .first
+        .timeout(const Duration(seconds: 5), onTimeout: () => RawSocketEvent.closed);
+    if (event == RawSocketEvent.read) {
+      final dg = socket.receive();
+      if (dg != null) {
+        final msg = utf8.decode(dg.data);
+        if (msg.startsWith('IMMICH_IP:')) {
+          return msg.split(':').last.trim();
+        }
+      }
+    }
+    return null;
+  } finally {
+    socket.close();
+  }
+}
+
 void main() async {
+
+  // ── 1) Try LAN discovery before any heavy init ─────────────────────────────
+  final ip = await discoverImmichServer();
+
   ImmichWidgetsBinding();
   final db = await Bootstrap.initIsar();
   await Bootstrap.initDomain(db);
@@ -49,6 +89,14 @@ void main() async {
       overrides: [
         dbProvider.overrideWithValue(db),
         isarProvider.overrideWithValue(db),
+        apiServiceProvider.overrideWithValue(
+        ApiService()
+          ..setEndpoint(
+            ip != null
+                ? 'http://$ip:8080/api'
+                : '',
+          ),
+        ),
       ],
       child: const MainWidget(),
     ),

@@ -1,0 +1,59 @@
+diff --git a/mobile/lib/main.dart b/mobile/lib/main.dart
+index 1234567..89abcde 100644
+--- a/mobile/lib/main.dart
++++ b/mobile/lib/main.dart
+@@ -1,6 +1,32 @@
++// -----------------------------------------------------------------------------
++// Immich Mobile App
++// Copyright © 2025 Immich Contributors
++// Licensed under MIT (https://github.com/immich-app/immich/blob/master/LICENSE)
++// -----------------------------------------------------------------------------
+
+ import 'package:flutter/material.dart';
++import 'dart:async';
++import 'dart:convert';
++import 'dart:io';
+ import 'package:immich_mobile/app.dart';
+ import 'package:immich_mobile/services/api_service.dart';
+ import 'package:immich_mobile/providers/session_provider.dart';
+@@ -20,6 +46,23 @@ import 'package:provider/provider.dart';
+
+ Future<void> main() async {
+   WidgetsFlutterBinding.ensureInitialized();
++
++  /// Try to discover the server via LAN broadcast (IMMICH_IP:<ip>)
++  Future<String?> discoverImmichServer() async {
++    final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 42424);
++    socket.broadcastEnabled = true;
++    try {
++      final event = await socket
++          .where((e) => e == RawSocketEvent.read)
++          .first
++          .timeout(const Duration(seconds: 5), onTimeout: () => null);
++      if (event == RawSocketEvent.read) {
++        final dg = socket.receive();
++        if (dg != null) {
++          final msg = utf8.decode(dg.data);
++          if (msg.startsWith('IMMICH_IP:')) {
++            return msg.split(':').last.trim();
++          }
++        }
++      }
++      return null;
++    } finally {
++      socket.close();
++    }
++  }
++
+   // attempt auto‐discovery
+   final ip = await discoverImmichServer();
+   if (ip != null) {
+@@ -27,7 +70,7 @@ Future<void> main() async {
+     // point your API‐client at the discovered address
+     ApiService.instance.setEndpoint('http://$ip:2283/api');
+   }
+-  
++  // now launch the normal app UI
+   runApp(
+     ProviderScope(
+       overrides: [
