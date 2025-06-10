@@ -59,8 +59,12 @@ libisar.so
 .fvm/
 
 # Translation file
+<<<<<<< HEAD
 lib/generated/codegen_loader.g.dart
 
 lib/immich_discovery_port.dart
 
 dev_session_history.md
+=======
+lib/generated/
+>>>>>>> upstream/main

@@ -26,8 +26,8 @@ import 'package:immich_mobile/providers/db.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/db.provider.dart';
 import 'package:immich_mobile/providers/locale_provider.dart';
 import 'package:immich_mobile/providers/theme.provider.dart';
-import 'package:immich_mobile/routing/router.dart';
 import 'package:immich_mobile/routing/app_navigation_observer.dart';
+import 'package:immich_mobile/routing/router.dart';
 import 'package:immich_mobile/services/background.service.dart';
 import 'package:immich_mobile/services/local_notification.service.dart';
 import 'package:immich_mobile/theme/dynamic_theme.dart';
@@ -79,30 +79,26 @@ Future<String?> discoverImmichServer() async {
 }
 
 void main() async {
-  // ── 1) Try LAN discovery before any heavy init ─────────────────────────────
   final ip = await discoverImmichServer();
-  ImmichWidgetsBinding();
-  final db = await Bootstrap.initIsar();
-  await Bootstrap.initDomain(db);
-  await initApp();
-  // Warm-up isolate pool for worker manager
-  await workerManager.init(dynamicSpawning: true);
-  await migrateDatabaseIfNeeded(db);
-  HttpSSLOptions.apply();
   if (ip != null) {
     discoveredServerEndpoint = 'http://$ip:2283/api';
     ApiService().setEndpoint(discoveredServerEndpoint!);
     print('IP - http://$ip:2283/api');
   }
-
+  ImmichWidgetsBinding();
+  final db = await Bootstrap.initIsar();
+  await Bootstrap.initDomain(db);
+  await initApp();
+  await workerManager.init(dynamicSpawning: true);
+  await migrateDatabaseIfNeeded(db);
+  HttpSSLOptions.apply();
   runApp(
     ProviderScope(
       overrides: [
         dbProvider.overrideWithValue(db),
         isarProvider.overrideWithValue(db)
       ],
-      child: MainWidget(
-          initialServerEndpoint: ip != null ? 'http://$ip:2283/api' : null),
+      child: const MainWidget(),
     ),
   );
 }
@@ -141,18 +137,6 @@ Future<void> initApp() async {
 
   initializeTimeZones();
 
-  FileDownloader().configureNotification(
-    running: TaskNotification(
-      'downloading_media'.tr(),
-      'file: {filename}',
-    ),
-    complete: TaskNotification(
-      'download_finished'.tr(),
-      'file: {filename}',
-    ),
-    progressBar: true,
-  );
-
   await FileDownloader().trackTasksInGroup(
     downloadGroupLivePhoto,
     markDownloadedComplete: false,
@@ -162,8 +146,7 @@ Future<void> initApp() async {
 }
 
 class MainWidget extends StatelessWidget {
-  final String? initialServerEndpoint;
-  const MainWidget({super.key, this.initialServerEndpoint});
+  const MainWidget({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -173,14 +156,13 @@ class MainWidget extends StatelessWidget {
       useFallbackTranslations: true,
       fallbackLocale: locales.values.first,
       assetLoader: const CodegenLoader(),
-      child: ImmichApp(initialServerEndpoint: initialServerEndpoint),
+      child: const ImmichApp(),
     );
   }
 }
 
 class ImmichApp extends ConsumerStatefulWidget {
-  final String? initialServerEndpoint;
-  const ImmichApp({super.key, this.initialServerEndpoint});
+  const ImmichApp({super.key});
 
   @override
   ImmichAppState createState() => ImmichAppState();
@@ -237,10 +219,27 @@ class ImmichAppState extends ConsumerState<ImmichApp>
     await ref.read(localNotificationService).setup();
   }
 
+  void _configureFileDownloaderNotifications() {
+    FileDownloader().configureNotification(
+      running: TaskNotification(
+        'downloading_media'.tr(),
+        '${'file_name'.tr()}: {filename}',
+      ),
+      complete: TaskNotification(
+        'download_finished'.tr(),
+        '${'file_name'.tr()}: {filename}',
+      ),
+      progressBar: true,
+    );
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     Intl.defaultLocale = context.locale.toLanguageTag();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _configureFileDownloaderNotifications();
+    });
   }
 
   @override
@@ -265,37 +264,29 @@ class ImmichAppState extends ConsumerState<ImmichApp>
   Widget build(BuildContext context) {
     final router = ref.watch(appRouterProvider);
     final immichTheme = ref.watch(immichThemeProvider);
-
     return ProviderScope(
       overrides: [
         localeProvider.overrideWithValue(context.locale),
       ],
-      child: MaterialApp(
+      child: MaterialApp.router(
         localizationsDelegates: context.localizationDelegates,
         supportedLocales: context.supportedLocales,
         locale: context.locale,
         debugShowCheckedModeBanner: true,
-        home: MaterialApp.router(
-          title: 'Immich',
-          debugShowCheckedModeBanner: false,
-          themeMode: ref.watch(immichThemeModeProvider),
-          darkTheme: getThemeData(
-            colorScheme: immichTheme.dark,
-            locale: context.locale,
-          ),
-          theme: getThemeData(
-            colorScheme: immichTheme.light,
-            locale: context.locale,
-          ),
-          routeInformationParser: router.defaultRouteParser(),
-          routerDelegate: router.delegate(
-            navigatorObservers: () => [AppNavigationObserver(ref: ref)],
-            // Remove initialRoutes and let router handle initial page
-          ),
+        themeMode: ref.watch(immichThemeModeProvider),
+        darkTheme: getThemeData(
+          colorScheme: immichTheme.dark,
+          locale: context.locale,
+        ),
+        theme: getThemeData(
+          colorScheme: immichTheme.light,
+          locale: context.locale,
+        ),
+        routeInformationParser: router.defaultRouteParser(),
+        routerDelegate: router.delegate(
+          navigatorObservers: () => [AppNavigationObserver(ref: ref)],
         ),
       ),
     );
   }
 }
-
-// ignore: prefer-single-widget-per-file
