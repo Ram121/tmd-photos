@@ -977,10 +977,17 @@ class LockedRoute extends PageRouteInfo<void> {
 
 /// generated route for
 /// [LoginPage]
-class LoginRoute extends PageRouteInfo<void> {
-  const LoginRoute({List<PageRouteInfo>? children})
-      : super(
+class LoginRoute extends PageRouteInfo<LoginRouteArgs> {
+  LoginRoute({
+    Key? key,
+    String? initialServerEndpoint,
+    List<PageRouteInfo>? children,
+  }) : super(
           LoginRoute.name,
+          args: LoginRouteArgs(
+            key: key,
+            initialServerEndpoint: initialServerEndpoint,
+          ),
           initialChildren: children,
         );
 
@@ -989,9 +996,30 @@ class LoginRoute extends PageRouteInfo<void> {
   static PageInfo page = PageInfo(
     name,
     builder: (data) {
-      return const LoginPage();
+      final args =
+          data.argsAs<LoginRouteArgs>(orElse: () => const LoginRouteArgs());
+      return LoginPage(
+        key: args.key,
+        initialServerEndpoint: args.initialServerEndpoint,
+      );
     },
   );
+}
+
+class LoginRouteArgs {
+  const LoginRouteArgs({
+    this.key,
+    this.initialServerEndpoint,
+  });
+
+  final Key? key;
+
+  final String? initialServerEndpoint;
+
+  @override
+  String toString() {
+    return 'LoginRouteArgs{key: $key, initialServerEndpoint: $initialServerEndpoint}';
+  }
 }
 
 /// generated route for

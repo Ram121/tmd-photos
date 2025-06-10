@@ -5,12 +5,9 @@
 // -----------------------------------------------------------------------------
 
 import 'dart:async';
-import 'dart:io';
-import 'dart:async';
-import 'dart:convert';   // ← this gives you utf8
+import 'dart:convert'; // ← this gives you utf8
 import 'dart:io';
 
-import 'package:immich_mobile/providers/api.provider.dart';
 import 'package:immich_mobile/services/api.service.dart';
 import 'package:background_downloader/background_downloader.dart';
 import 'package:device_info_plus/device_info_plus.dart';
@@ -44,37 +41,46 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:logging/logging.dart';
 import 'package:timezone/data/latest.dart';
 import 'package:worker_manager/worker_manager.dart';
+import 'immich_discovery_port.dart';
 
+String? discoveredServerEndpoint;
 
 /// Listens for “IMMICH_IP:<ip>” on UDP port 42424 for up to 5s.
 Future<String?> discoverImmichServer() async {
-  final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 42424);
+  final socket = await RawDatagramSocket.bind(
+      InternetAddress.anyIPv4, ImmichDiscoveryConfig.port);
   socket.broadcastEnabled = true;
-  try {
-    final event = await socket
-        .where((e) => e == RawSocketEvent.read)
-        .first
-        .timeout(const Duration(seconds: 5), onTimeout: () => RawSocketEvent.closed);
+  String? found;
+
+  // 1) Listen for incoming packets
+  final sub = socket.listen((event) {
     if (event == RawSocketEvent.read) {
-      final dg = socket.receive();
+      final dg = socket.receive(); // no await here!
       if (dg != null) {
         final msg = utf8.decode(dg.data);
         if (msg.startsWith('IMMICH_IP:')) {
-          return msg.split(':').last.trim();
+          found = msg.split(':').last.trim();
         }
       }
     }
-    return null;
-  } finally {
-    socket.close();
+  });
+
+  // 2) Wait either for found != null or for timeout
+  final stop = DateTime.now().add(const Duration(seconds: 10));
+  while (found == null && DateTime.now().isBefore(stop)) {
+    await Future.delayed(const Duration(milliseconds: 100));
   }
+
+  // 3) Clean up
+  await sub.cancel();
+  socket.close();
+
+  return found;
 }
 
 void main() async {
-
   // ── 1) Try LAN discovery before any heavy init ─────────────────────────────
   final ip = await discoverImmichServer();
-
   ImmichWidgetsBinding();
   final db = await Bootstrap.initIsar();
   await Bootstrap.initDomain(db);
@@ -83,22 +89,20 @@ void main() async {
   await workerManager.init(dynamicSpawning: true);
   await migrateDatabaseIfNeeded(db);
   HttpSSLOptions.apply();
+  if (ip != null) {
+    discoveredServerEndpoint = 'http://$ip:2283/api';
+    ApiService().setEndpoint(discoveredServerEndpoint!);
+    print('IP - http://$ip:2283/api');
+  }
 
   runApp(
     ProviderScope(
       overrides: [
         dbProvider.overrideWithValue(db),
-        isarProvider.overrideWithValue(db),
-        apiServiceProvider.overrideWithValue(
-        ApiService()
-          ..setEndpoint(
-            ip != null
-                ? 'http://$ip:8080/api'
-                : '',
-          ),
-        ),
+        isarProvider.overrideWithValue(db)
       ],
-      child: const MainWidget(),
+      child: MainWidget(
+          initialServerEndpoint: ip != null ? 'http://$ip:2283/api' : null),
     ),
   );
 }
@@ -157,8 +161,26 @@ Future<void> initApp() async {
   await FileDownloader().trackTasks();
 }
 
+class MainWidget extends StatelessWidget {
+  final String? initialServerEndpoint;
+  const MainWidget({super.key, this.initialServerEndpoint});
+
+  @override
+  Widget build(BuildContext context) {
+    return EasyLocalization(
+      supportedLocales: locales.values.toList(),
+      path: translationsPath,
+      useFallbackTranslations: true,
+      fallbackLocale: locales.values.first,
+      assetLoader: const CodegenLoader(),
+      child: ImmichApp(initialServerEndpoint: initialServerEndpoint),
+    );
+  }
+}
+
 class ImmichApp extends ConsumerStatefulWidget {
-  const ImmichApp({super.key});
+  final String? initialServerEndpoint;
+  const ImmichApp({super.key, this.initialServerEndpoint});
 
   @override
   ImmichAppState createState() => ImmichAppState();
@@ -268,6 +290,7 @@ class ImmichAppState extends ConsumerState<ImmichApp>
           routeInformationParser: router.defaultRouteParser(),
           routerDelegate: router.delegate(
             navigatorObservers: () => [AppNavigationObserver(ref: ref)],
+            // Remove initialRoutes and let router handle initial page
           ),
         ),
       ),
@@ -276,18 +299,3 @@ class ImmichAppState extends ConsumerState<ImmichApp>
 }
 
 // ignore: prefer-single-widget-per-file
-class MainWidget extends StatelessWidget {
-  const MainWidget({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return EasyLocalization(
-      supportedLocales: locales.values.toList(),
-      path: translationsPath,
-      useFallbackTranslations: true,
-      fallbackLocale: locales.values.first,
-      assetLoader: const CodegenLoader(),
-      child: const ImmichApp(),
-    );
-  }
-}

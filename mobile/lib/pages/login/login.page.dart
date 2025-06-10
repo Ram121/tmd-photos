@@ -10,7 +10,8 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 @RoutePage()
 class LoginPage extends HookConsumerWidget {
-  const LoginPage({super.key});
+  final String? initialServerEndpoint;
+  const LoginPage({super.key, this.initialServerEndpoint});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -29,7 +30,7 @@ class LoginPage extends HookConsumerWidget {
     );
 
     return Scaffold(
-      body: LoginForm(),
+      body: LoginForm(initialServerEndpoint: initialServerEndpoint),
       bottomNavigationBar: SafeArea(
         child: Padding(
           padding: const EdgeInsets.only(bottom: 16.0),

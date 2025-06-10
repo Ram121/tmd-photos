@@ -60,3 +60,7 @@ libisar.so
 
 # Translation file
 lib/generated/codegen_loader.g.dart
+
+lib/immich_discovery_port.dart
+
+dev_session_history.md

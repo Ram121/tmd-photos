@@ -68,7 +68,12 @@ class SplashScreenPageState extends ConsumerState<SplashScreenPage> {
         'Unable to login using offline or online methods - Logging out completely',
       );
       ref.read(authProvider.notifier).logout();
-      context.replaceRoute(const LoginRoute());
+      // Pass initialServerEndpoint if available
+      final initialServerEndpoint = widget.key is ValueKey<String>
+          ? (widget.key as ValueKey<String>).value
+          : null;
+      context.replaceRoute(
+          LoginRoute(initialServerEndpoint: initialServerEndpoint));
       return;
     }
 

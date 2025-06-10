@@ -33,9 +33,11 @@ import 'package:logging/logging.dart';
 import 'package:openapi/api.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:immich_mobile/main.dart' show discoveredServerEndpoint;
 
 class LoginForm extends HookConsumerWidget {
-  LoginForm({super.key});
+  final String? initialServerEndpoint;
+  LoginForm({super.key, this.initialServerEndpoint});
 
   final log = Logger('LoginForm');
 
@@ -88,9 +90,11 @@ class LoginForm extends HookConsumerWidget {
     Future<void> getServerAuthSettings() async {
       final sanitizeServerUrl = sanitizeUrl(serverEndpointController.text);
       final serverUrl = punycodeEncodeUrl(sanitizeServerUrl);
+      debugPrint('[Immich] getServerAuthSettings: serverUrl=$serverUrl');
 
       // Guard empty URL
       if (serverUrl.isEmpty) {
+        debugPrint('[Immich] getServerAuthSettings: serverUrl is empty');
         ImmichToast.show(
           context: context,
           msg: "login_form_server_empty".tr(),
@@ -100,11 +104,15 @@ class LoginForm extends HookConsumerWidget {
 
       try {
         isLoadingServer.value = true;
+        debugPrint('[Immich] getServerAuthSettings: validating server url...');
         final endpoint =
             await ref.read(authProvider.notifier).validateServerUrl(serverUrl);
+        debugPrint(
+            '[Immich] getServerAuthSettings: validateServerUrl success, endpoint=$endpoint');
 
         // Fetch and load server config and features
         await ref.read(serverInfoProvider.notifier).getServerInfo();
+        debugPrint('[Immich] getServerAuthSettings: getServerInfo success');
 
         final serverInfo = ref.read(serverInfoProvider);
         final features = serverInfo.serverFeatures;
@@ -117,7 +125,11 @@ class LoginForm extends HookConsumerWidget {
             : 'OAuth';
 
         serverEndpoint.value = endpoint;
+        debugPrint(
+            '[Immich] getServerAuthSettings: serverEndpoint.value set, switching to login form');
       } on ApiException catch (e) {
+        debugPrint(
+            '[Immich] getServerAuthSettings: ApiException: \\${e.message}');
         ImmichToast.show(
           context: context,
           msg: e.message ?? 'login_form_api_exception'.tr(),
@@ -127,7 +139,9 @@ class LoginForm extends HookConsumerWidget {
         isOauthEnable.value = false;
         isPasswordLoginEnable.value = true;
         isLoadingServer.value = false;
-      } on HandshakeException {
+      } on HandshakeException catch (e) {
+        debugPrint(
+            '[Immich] getServerAuthSettings: HandshakeException: \\${e.toString()}');
         ImmichToast.show(
           context: context,
           msg: 'login_form_handshake_exception'.tr(),
@@ -138,6 +152,8 @@ class LoginForm extends HookConsumerWidget {
         isPasswordLoginEnable.value = true;
         isLoadingServer.value = false;
       } catch (e) {
+        debugPrint(
+            '[Immich] getServerAuthSettings: Exception: \\${e.toString()}');
         ImmichToast.show(
           context: context,
           msg: 'login_form_server_error'.tr(),
@@ -154,9 +170,18 @@ class LoginForm extends HookConsumerWidget {
 
     useEffect(
       () {
-        final serverUrl = getServerUrl();
+        final serverUrl =
+            initialServerEndpoint ?? discoveredServerEndpoint ?? getServerUrl();
         if (serverUrl != null) {
           serverEndpointController.text = serverUrl;
+          if ((initialServerEndpoint ?? discoveredServerEndpoint) != null) {
+            debugPrint(
+                '[Immich] useEffect: discoveredServerEndpoint detected, calling getServerAuthSettings');
+            Future.microtask(() async {
+              await getServerAuthSettings();
+              emailFocusNode.requestFocus();
+            });
+          }
         }
         return null;
       },
